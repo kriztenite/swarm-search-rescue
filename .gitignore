@@ -1,0 +1,22 @@
+ # build artifacts
+ bin/
+ build/
+ lib/
+ lib64
+ venv/
+CMakeFiles
+ CMakeCache.txt
+ *.o
+ *.obj
+ *.a
+ *.lib
+ *.so
+ __pycache__/
+ *.py[cod]
+ venv/
+ env/
+ .venv/
+ .pytest_cache/
+ pyvenv.cfg
+ 
+ 
