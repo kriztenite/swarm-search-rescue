@@ -12,11 +12,12 @@ CMakeFiles
  *.lib
  *.so
  __pycache__/
- *.py[cod]
+ *.pyc
  venv/
  env/
  .venv/
  .pytest_cache/
  pyvenv.cfg
+ *.egg-info/
  
  

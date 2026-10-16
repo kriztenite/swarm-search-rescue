@@ -19,13 +19,20 @@ include_directories(include)
 # c++source and the pybind11 wrapper
 pybind11_add_module(swarm_core
 src/Agent.cpp
+src/GridMap.cpp
 src/pybind11_wrapper.cpp
+src/CommsManager.cpp
 )
+
+# Force the compiled module to sit in python
+set_target_properties(swarm_core PROPERTIES
+    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/python")
 
 # Standard c++ test executable
 add_executable(unit_tests
 tests/test_agent.cpp
 src/Agent.cpp
+src/GridMap.cpp
 )
 
 add_test(NAME AgentUnitTests COMMAND unit_tests)
