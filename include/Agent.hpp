@@ -68,4 +68,10 @@ class RobotAgent {
   // Local agent memory and communication state
   std::vector<Message> inbox_;
   std::vector<std::pair<double, double>> known_survivors_;
+
+  // Helper functions
+  void updateProportionalSteering();
+  void updateVelocities(double dt);
+  void updatePose(double dt, const GridMap& map);
+  void updateBattery(double dt);
 };

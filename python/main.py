@@ -70,7 +70,7 @@ def main():
         swarm_core.RobotAgent(id=2, x=220.0, y=200.0, max_speed=140.0),
         swarm_core.RobotAgent(id=3, x=600.0, y=400.0, max_speed=150.0),
         swarm_core.RobotAgent(id=4, x=380.0, y=100.0, max_speed=100.0),
-        swarm_core.RobotAgent(id=5, x=500.0, y=500.0, max_speed=110.0),
+        swarm_core.RobotAgent(id=5, x=450.0, y=500.0, max_speed=110.0),
     ]
 
     # Give them initial target velocities (linear velocity, angular velocity)
