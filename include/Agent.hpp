@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cmath>
 #include <utility>
 #include <vector>
 
@@ -58,6 +59,11 @@ class RobotAgent {
   // Kinematic constraints
   double max_linear_accel_{1.5};    // m/s^2
   double max_angular_accel_{3.14};  // rad/s^2
+
+  // Navigate target state
+  bool has_target_{false};
+  double target_x_{0.0};
+  double target_y_{0.0};
 
   // Local agent memory and communication state
   std::vector<Message> inbox_;

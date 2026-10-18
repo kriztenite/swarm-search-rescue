@@ -3,15 +3,6 @@ import sys
 
 import pygame
 
-# module_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "build"))
-# sys.path.append(module_path)
-#
-#
-# # Get path to swarm_core
-# # build_path = os.path.dirname(__file__), "../build"
-# # sys.path.insert(0, build_path)
-# print(f"Build path : {module_path}")
-
 # import our compiled c++ module
 try:
     import swarm_core
@@ -78,6 +69,8 @@ def main():
         swarm_core.RobotAgent(id=1, x=100.0, y=300.0, max_speed=130.0),
         swarm_core.RobotAgent(id=2, x=220.0, y=200.0, max_speed=140.0),
         swarm_core.RobotAgent(id=3, x=600.0, y=400.0, max_speed=150.0),
+        swarm_core.RobotAgent(id=4, x=380.0, y=100.0, max_speed=100.0),
+        swarm_core.RobotAgent(id=5, x=500.0, y=500.0, max_speed=110.0),
     ]
 
     # Give them initial target velocities (linear velocity, angular velocity)
@@ -150,20 +143,32 @@ def main():
                 if dist <= comms.get_comms_range():
                     pygame.draw.line(
                         screen,
-                        (0, 120, 200),
+                        COMMS_LINE_COLOR,
                         (int(p1.x), int(p1.y)),
                         (int(p2.x), int(p2.y)),
-                        2,
+                        1,
                     )
-                    # Render Robots
+
+        # Render Robots
         for robot in robots:
             pose = robot.get_pose()
             rx, ry, rtheta = int(pose.x), int(pose.y), pose.theta
 
+            # Draw know survivors in memory
+            for surv in robot.get_known_survivors():
+                pygame.draw.circle(
+                    screen,
+                    KNOWN_SURVIVOR_COLOR,
+                    int(surv.first),
+                    int(surv.second),
+                    8,
+                    1,
+                )
+
             # Draw robot body
             pygame.draw.circle(screen, ROBOT_COLOR, (rx, ry), int(RESOLUTION / 2.5))
 
-            # Draw heading line
+            # Draw heading vector
             end_x = rx + int(15 * math.cos(rtheta))
             end_y = ry + int(15 * math.sin(rtheta))
             pygame.draw.line(screen, HEADING_COLOR, (rx, ry), (end_x, end_y), 3)
