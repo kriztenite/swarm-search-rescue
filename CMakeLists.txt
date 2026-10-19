@@ -33,6 +33,7 @@ add_executable(unit_tests
 tests/test_agent.cpp
 src/Agent.cpp
 src/GridMap.cpp
+src/CommsManager.cpp
 )
 
 add_test(NAME AgentUnitTests COMMAND unit_tests)

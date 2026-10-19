@@ -1,8 +1,11 @@
-#include "Agent.hpp"
-#include "GridMap.hpp"
 #include <cassert>
 #include <cmath>
 #include <iostream>
+#include <vector>
+
+#include "Agent.hpp"
+#include "CommsManager.hpp"
+#include "GridMap.hpp"
 
 void test_initial_state() {
   RobotAgent agent(1, 100.0, 200.0, 50.0);
@@ -31,7 +34,7 @@ void test_linear_motion_with_map() {
   agent.step(1.0, map);
 
   Pose pose = agent.get_pose();
-  assert(pose.x > 30.0); // should move forward safely
+  assert(pose.x > 30.0);  // should move forward safely
   std::cout << "[PASSED] test_linear_motion_with_map\n";
 }
 
@@ -71,6 +74,51 @@ void test_survivor_collection() {
   assert(found_second == false);
 
   std::cout << "[PASSED] test_survivor_collection\n";
+}
+
+void test_communication_sync() {
+  GridMap map(20, 20, 20.0);
+  CommsManager comms_mgr(150.0);  // 150 unit comm range
+
+  std::vector<RobotAgent> agents;
+
+  agents.emplace_back(1, 100.0, 100.0, 50.0);
+  agents.emplace_back(2, 150.0, 100.0, 50.0);
+
+  // Agent 1 discovers a survivor and records it in memory
+  agents[0].add_survivor_memory(300.0, 300.0);
+
+  // Run communication manager
+  comms_mgr.communicate(agents);
+
+  // Agent 2 should have received the survivor location via communication
+  const auto& known_by_agent2 = agents[1].get_known_survivors();
+  assert(known_by_agent2.size() == 1);
+  assert(known_by_agent2[0].first == 300.0);
+  assert(known_by_agent2[0].second == 300.0);
+
+  std::cout << "[PASSED] test_communication_sync\n";
+}
+
+void test_goal_directed_navigation() {
+  GridMap map(20, 20, 20.0);
+  RobotAgent agent(1, 100.0, 100.0, 100.0);
+
+  // Set target destination far to the right
+  agent.set_navigation_target(200.0, 100.0);
+  assert(agent.has_target() == true);
+
+  Pose initial_pose = agent.get_pose();
+
+  // Step simulation forward to let proportional steering drive the robot
+  for (int i = 0; i < 10; ++i)
+    agent.step(0.1, map);
+
+  Pose updated_pose = agent.get_pose();
+  // robot should have moved closer to x = 200.0
+  assert(updated_pose.x > initial_pose.x);
+
+  std::cout << "[PASSED] test_goal_directed_navigation\n";
 }
 
 void test_battery_depletion() {

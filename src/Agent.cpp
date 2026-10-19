@@ -15,6 +15,12 @@ void RobotAgent::set_target_velocity(double v, double omega) {
   target_vel_.angular = omega;
 }
 
+void RobotAgent::set_navigation_target(double tx, double ty) {
+  target_x_ = tx;
+  target_y_ = ty;
+  has_target_ = true;
+}
+
 void RobotAgent::receive_message(const Message& msg) {
   // Avoid storing duplicate messages
   inbox_.push_back(msg);

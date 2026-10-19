@@ -62,7 +62,10 @@ PYBIND11_MODULE(swarm_core, m) {
       .def("get_known_survivors", &RobotAgent::get_known_survivors,
            "Returns list of known survivor cordinates")
       .def("survivor_memory", &RobotAgent::add_survivor_memory, py::arg("x"),
-           py::arg("y"));
+           py::arg("y"))
+      .def("set_navigation_target", &RobotAgent::set_navigation_target,
+           py::arg("tx"), py::arg("ty"))
+      .def("has_target", &RobotAgent::has_target);
 
   // Expose CommsManager
   py::class_<CommsManager>(m, "CommsManager")

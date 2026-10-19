@@ -31,6 +31,10 @@ class RobotAgent {
   void step(double dt, const GridMap& map);
   void set_target_velocity(double v, double omega);
 
+  // Set a physical world coordinate target for navigation
+  void set_navigation_target(double tx, double ty);
+  bool has_target() const { return has_target_; }
+
   // Communication inbox methods
   void receive_message(const Message& msg);
   const std::vector<Message>& get_inbox() const { return inbox_; }

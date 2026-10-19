@@ -27,7 +27,9 @@ def main():
     GRID_ROWS = int(HEIGHT / RESOLUTION)
 
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
-    pygame.display.set_caption("Swarm Search & Rescue -Communication & Memory Test")
+    pygame.display.set_caption(
+        "Swarm Search & Rescue -Cooperative Goal-Directed Exploration"
+    )
 
     # Colors (RGB)
     BG_COLOR = (20, 20, 30)
@@ -36,6 +38,7 @@ def main():
     KNOWN_SURVIVOR_COLOR = (165, 42, 42)  # Brown(#A52A2A)
     ROBOT_COLOR = (0, 255, 150)
     HEADING_COLOR = (255, 50, 50)
+    TARGET_LINE_COLOR = (255, 255, 150)
     COMMS_LINE_COLOR = (0, 150, 255)  # cyan
     TEXT_COLOR = (220, 220, 220)
 
@@ -58,9 +61,11 @@ def main():
     # Add some integral obstacles (e.g. a central barrier or pillars)
     for y in range(5, 15):
         world_map.set_cell(15, y, swarm_core.CellState.OBSTACLE)
+    for x in range(20, 30):
+        world_map.set_cell(x, 20, swarm_core.CellState.OBSTACLE)
 
     # Scatter survivors across the map
-    survivors_locations = [(5, 5), (10, 23), (26, 34), (30, 22), (18, 18)]
+    survivors_locations = [(5, 5), (10, 20), (25, 8), (32, 22), (18, 18), (35, 12)]
     for sx, sy in survivors_locations:
         world_map.set_cell(sx, sy, swarm_core.CellState.SURVIVOR)
 
@@ -76,7 +81,7 @@ def main():
     # Give them initial target velocities (linear velocity, angular velocity)
     for i, robot in enumerate(robots):
         # Drive forward with a slight turning rate to make them move in arcs
-        robot.set_target_velocity(v=100.0, omega=0.5 + (i * 0.5))
+        robot.set_target_velocity(v=80.0, omega=0.5 + (i * 0.5))
 
     running = True
     dt = 1.0 / FPS  # Fixed delta time per frame
@@ -94,7 +99,7 @@ def main():
         for robot in robots:
             robot.step(dt, world_map)
 
-            # Check survivor collection locally
+            # Check if there is a survivor locally
             pose = robot.get_pose()
             if world_map.check_survivor(pose.x, pose.y):
                 print(
@@ -104,10 +109,22 @@ def main():
 
             # Process inbox message received from teammates
             inbox = robot.get_inbox()
-            if not inbox:
-                for msg in inbox:
-                    # Store shared survivor location into local memory
+            for msg in inbox:
+                # Store shared survivor location into local memory
+                if msg.survivor_found:
                     robot.add_survivor_memory(msg.survivor_x, msg.survivor_y)
+
+            # If robot has no active navigation target, look through know
+            if not robot.has_target():
+                known = robot.get_known_survivors()
+                if known:
+                    # Pick the first knowm survivor as the navigation target
+                    target = known[0]
+                    robot.set_navigation_target(target.first, target.second)
+
+            # Step simulation
+            # handles proportional steering and collision checks
+            robot.step(dt, world_map)
 
             if robot.get_battery() <= 0:
                 robot.set_target_velocity(0.0, 0.0)
@@ -130,9 +147,12 @@ def main():
                     center_x = int(gx * RESOLUTION + RESOLUTION / 2)
                     center_y = int(gy * RESOLUTION + RESOLUTION / 2)
                     pygame.draw.circle(
-                        screen, SURVIVOR_COLOR, (center_x, center_y), int(RESOLUTION)
+                        screen,
+                        SURVIVOR_COLOR,
+                        (center_x, center_y),
+                        int(RESOLUTION / 3),
                     )
-        # Render Robots, Headings and shared Knowledge Markers
+        # Render comms links between connected robots
         for i in range(len(robots)):
             for j in range(i + 1, len(robots)):
                 p1 = robots[i].get_pose()
@@ -149,7 +169,7 @@ def main():
                         1,
                     )
 
-        # Render Robots
+        # Render Robots, Headings and Target lines
         for robot in robots:
             pose = robot.get_pose()
             rx, ry, rtheta = int(pose.x), int(pose.y), pose.theta
