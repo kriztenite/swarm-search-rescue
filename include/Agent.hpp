@@ -11,6 +11,13 @@ struct Message {
   double survivor_x;
   double survivor_y;
   bool survivor_found;
+  bool visited{false};
+};
+
+struct SurvivorRecord {
+  double x;
+  double y;
+  bool visited{false};
 };
 
 struct Pose {
@@ -44,12 +51,13 @@ class RobotAgent {
   Pose get_pose() const { return pose_; }
   int get_id() const { return id_; }
   double get_battery() const { return battery_level_; }
-  const std::vector<std::pair<double, double>>& get_known_survivors() const {
+  const std::vector<SurvivorRecord>& get_known_survivors() const {
     return known_survivors_;
   }
 
   // Add a discovered survivor to local memory
-  void add_survivor_memory(double x, double y);
+  void add_survivor_memory(double x, double y, bool visited = false);
+  void mark_survivor_visited(double x, double y);
 
  private:
   int id_;
@@ -71,7 +79,7 @@ class RobotAgent {
 
   // Local agent memory and communication state
   std::vector<Message> inbox_;
-  std::vector<std::pair<double, double>> known_survivors_;
+  std::vector<SurvivorRecord> known_survivors_;
 
   // Helper functions
   void updateProportionalSteering();

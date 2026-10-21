@@ -22,6 +22,7 @@ src/Agent.cpp
 src/GridMap.cpp
 src/pybind11_wrapper.cpp
 src/CommsManager.cpp
+src/MetricsLogger.cpp
 )
 
 # Force the compiled module to sit in python
@@ -34,6 +35,7 @@ tests/test_agent.cpp
 src/Agent.cpp
 src/GridMap.cpp
 src/CommsManager.cpp
+src/MetricsLogger.cpp
 )
 
 add_test(NAME AgentUnitTests COMMAND unit_tests)

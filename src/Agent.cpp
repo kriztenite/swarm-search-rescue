@@ -23,22 +23,41 @@ void RobotAgent::set_navigation_target(double tx, double ty) {
 
 void RobotAgent::receive_message(const Message& msg) {
   // Avoid storing duplicate messages
-  inbox_.push_back(msg);
+  auto exists = std::any_of(known_survivors_.begin(), known_survivors_.end(),
+                            [&msg](const SurvivorRecord& rec) {
+                              return std::hypot(rec.x - msg.survivor_x,
+                                                rec.y - msg.survivor_y) < 25.0;
+                            });
+  if (!exists) {
+    inbox_.push_back(msg);
+    add_survivor_memory(msg.survivor_x, msg.survivor_y);
+  }
 }
 
 void RobotAgent::clear_inbox() {
   inbox_.clear();
 }
 
-void RobotAgent::add_survivor_memory(double x, double y) {
+void RobotAgent::add_survivor_memory(double x, double y, bool visited) {
   // Avoid duplicates
   auto it = std::find_if(known_survivors_.begin(), known_survivors_.end(),
-                         [x, y](const auto& pos) {
-                           return std::abs(pos.first - x) < 5.0 &&
-                                  std::abs(pos.second - y) < 5.0;
+                         [x, y](const SurvivorRecord& pos) {
+                           return std::hypot(pos.x - x, pos.y - y);
                          });
-  if (it == known_survivors_.end())
-    known_survivors_.push_back({x, y});
+  if (it == known_survivors_.end()) {
+    known_survivors_.push_back({x, y, visited});
+  } else {
+    if (visited)
+      it->visited = true;
+  }
+}
+
+void RobotAgent::mark_survivor_visited(double x, double y) {
+  for (auto& rec : known_survivors_) {
+    if (std::hypot(rec.x - x, rec.y - y) < 25.0) {
+      rec.visited = true;
+    }
+  }
 }
 
 void RobotAgent::step(double dt, const GridMap& map) {

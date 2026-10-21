@@ -4,6 +4,7 @@
 #include "Agent.hpp"
 #include "CommsManager.hpp"
 #include "GridMap.hpp"
+#include "MetricsLogger.hpp"
 
 namespace py = pybind11;
 
@@ -13,6 +14,7 @@ PYBIND11_MODULE(swarm_core, m) {
 
   // 1. Expose CellState enum
   py::enum_<CellState>(m, "CellState")
+      .value("UNKNOWN", CellState::UNKNOWN)
       .value("FREE", CellState::FREE)
       .value("OBSTACLE", CellState::OBSTACLE)
       .value("SURVIVOR", CellState::SURVIVOR)
@@ -29,6 +31,10 @@ PYBIND11_MODULE(swarm_core, m) {
            py::arg("world_y"))
       .def("check_survivor", &GridMap::check_survivor, py::arg("world_x"),
            py::arg("world_y"))
+      .def("reveal_radius", &GridMap::reveal_radius, py::arg("world_x"),
+           py::arg("world_y"), py::arg("sensor_range"))
+      .def("get_frontier", &GridMap::get_frontiers,
+           "Returns lis of (x, y) frontier gird cordinates")
       .def("get_width", &GridMap::get_width)
       .def("get_height", &GridMap::get_height)
       .def("get_resolution", &GridMap::get_resolution);
@@ -39,6 +45,21 @@ PYBIND11_MODULE(swarm_core, m) {
       .def_readwrite("x", &Pose::x)
       .def_readwrite("y", &Pose::y)
       .def_readwrite("theta", &Pose::theta);
+
+  // Expose SurvivorRecord struct
+  py::class_<SurvivorRecord>(m, "SurvivorRecord")
+      .def(py::init<>())
+      .def_readwrite("x", &SurvivorRecord::x)
+      .def_readwrite("y", &SurvivorRecord::y)
+      .def_readwrite("visited", &SurvivorRecord::visited);
+
+  py::class_<Message>(m, "Message")
+      .def(py::init<>())
+      .def_readwrite("sender_id", &Message::sender_id)
+      .def_readwrite("survivor_x", &Message::survivor_x)
+      .def_readwrite("survivor_y", &Message::survivor_y)
+      .def_readwrite("survivor_found", &Message::survivor_found)
+      .def_readwrite("visited", &Message::visited);
 
   //  Expose the RobotAgent class and its public methods
   py::class_<RobotAgent>(m, "RobotAgent")
@@ -61,8 +82,10 @@ PYBIND11_MODULE(swarm_core, m) {
       .def("clear_inbox", &RobotAgent::clear_inbox)
       .def("get_known_survivors", &RobotAgent::get_known_survivors,
            "Returns list of known survivor cordinates")
-      .def("survivor_memory", &RobotAgent::add_survivor_memory, py::arg("x"),
-           py::arg("y"))
+      .def("add_survivor_memory", &RobotAgent::add_survivor_memory,
+           py::arg("x"), py::arg("y"), py::arg("visited"))
+      .def("mark_survivor_visited", &RobotAgent::mark_survivor_visited,
+           py::arg("x"), py::arg("y"))
       .def("set_navigation_target", &RobotAgent::set_navigation_target,
            py::arg("tx"), py::arg("ty"))
       .def("has_target", &RobotAgent::has_target);
@@ -73,4 +96,10 @@ PYBIND11_MODULE(swarm_core, m) {
       .def("communicate", &CommsManager::communicate, py::arg("agents"),
            "Sync messages between agents within range")
       .def("get_comms_range", &CommsManager::get_comms_range);
+
+  // Expose MetricsLogger
+  py::class_<MetricsLogger>(m, "MetricsLogger")
+      .def(py::init<const std::string&>(), py::arg("filename"))
+      .def("log_step", &MetricsLogger::logs_step, py::arg("time"),
+           py::arg("agents"), py::arg("map"), py::arg("total_survivors"));
 }

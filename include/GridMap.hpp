@@ -1,15 +1,12 @@
 #pragma once
 
+#include <utility>
 #include <vector>
 
-enum class CellState {
-  FREE = 0,
-  OBSTACLE = 1,
-  SURVIVOR = 2,
-};
+enum class CellState { UNKNOWN, FREE, OBSTACLE, SURVIVOR };
 
 class GridMap {
-public:
+ public:
   GridMap(int width, int height, double resolution);
 
   // Set a cell's state
@@ -24,19 +21,22 @@ public:
   // Check if a surviror is found at cordinates and clear it if collected
   bool check_survivor(double world_x, double world_y);
 
+  // Reveal unknown cells within sensor range around a world position
+  void reveal_radius(double world_x, double world_y, double sensor_range);
+
+  // Extract frontier cells (FREE cells adjacent to UNKNOWN cells)
+  std::vector<std::pair<int, int>> get_frontiers() const;
+
   // Getters
   int get_width() const { return width_; }
   int get_height() const { return height_; }
   double get_resolution() const { return resolution_; }
 
-private:
-  int width_;         // Number of column in grid
-  int height_;        // Number of row in grid
-  double resolution_; // Size of each cell in world units (e.g., meters)
+ private:
+  int width_;          // Number of column in grid
+  int height_;         // Number of row in grid
+  double resolution_;  // Size of each cell in world units (e.g., meters)
 
   // 2D grid stored as a flat vector for performance
-  std::vector<CellState> grid_;
-
-  // Helper to convert 2D grid index
-  int index(int x, int y) const;
+  std::vector<std::vector<CellState>> grid_;
 };

@@ -94,8 +94,8 @@ void test_communication_sync() {
   // Agent 2 should have received the survivor location via communication
   const auto& known_by_agent2 = agents[1].get_known_survivors();
   assert(known_by_agent2.size() == 1);
-  assert(known_by_agent2[0].first == 300.0);
-  assert(known_by_agent2[0].second == 300.0);
+  assert(known_by_agent2[0].x == 300.0);
+  assert(known_by_agent2[0].y == 300.0);
 
   std::cout << "[PASSED] test_communication_sync\n";
 }

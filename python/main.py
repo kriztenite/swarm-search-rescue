@@ -33,22 +33,27 @@ def main():
 
     # Colors (RGB)
     BG_COLOR = (20, 20, 30)
+    UNKNOWN_COLOR = (30, 30, 45)
+    FREE_COLOR = (45, 45, 65)
     OBSTACLE_COLOR = (60, 60, 80)
-    SURVIVOR_COLOR = (255, 215, 0)  # Gold
-    KNOWN_SURVIVOR_COLOR = (165, 42, 42)  # Brown(#A52A2A)
+    SURVIVOR_COLOR = (255, 215, 0)
+    KNOWN_SURVIVOR_COLOR = (165, 42, 42)
+    VISITED_SURVIVOR_COLOR = (100, 100, 100)
     ROBOT_COLOR = (0, 255, 150)
     HEADING_COLOR = (255, 50, 50)
-    TARGET_LINE_COLOR = (255, 255, 150)
-    COMMS_LINE_COLOR = (0, 150, 255)  # cyan
+    # TARGET_LINE_COLOR = (255, 255, 150)
+    COMMS_LINE_COLOR = (0, 150, 255)
     TEXT_COLOR = (220, 220, 220)
 
     # Simulation parameters
     FPS = 60
     clock = pygame.time.Clock()
+    sim_time = 0.0
 
-    # 1. Instantiate the GridMap & CommsManager (Range = 180 pixels)
+    # 1. Instantiate the GridMap, MetricsLogger and CommsManager(Range = 180 pixels)
     world_map = swarm_core.GridMap(GRID_COLS, GRID_ROWS, RESOLUTION)
     comms = swarm_core.CommsManager(comms_range=180.0)
+    metrics_logger = swarm_core.MetricsLogger("simulation_metrics.csv")
 
     # Build borders and obstacles
     for x in range(GRID_COLS):
@@ -58,24 +63,24 @@ def main():
         world_map.set_cell(0, y, swarm_core.CellState.OBSTACLE)
         world_map.set_cell(GRID_COLS - 1, y, swarm_core.CellState.OBSTACLE)
 
-    # Add some integral obstacles (e.g. a central barrier or pillars)
+    # Add some internal obstacles
     for y in range(5, 15):
         world_map.set_cell(15, y, swarm_core.CellState.OBSTACLE)
     for x in range(20, 30):
         world_map.set_cell(x, 20, swarm_core.CellState.OBSTACLE)
 
     # Scatter survivors across the map
-    survivors_locations = [(5, 5), (10, 20), (25, 8), (32, 22), (18, 18), (35, 12)]
+    survivors_locations = [(6, 6), (12, 22), (26, 6), (33, 24), (18, 10)]
     for sx, sy in survivors_locations:
         world_map.set_cell(sx, sy, swarm_core.CellState.SURVIVOR)
 
     # Instantiate Robots close enough to communicate or wander into range
     robots = [
-        swarm_core.RobotAgent(id=1, x=100.0, y=300.0, max_speed=130.0),
-        swarm_core.RobotAgent(id=2, x=220.0, y=200.0, max_speed=140.0),
-        swarm_core.RobotAgent(id=3, x=600.0, y=400.0, max_speed=150.0),
-        swarm_core.RobotAgent(id=4, x=380.0, y=100.0, max_speed=100.0),
-        swarm_core.RobotAgent(id=5, x=450.0, y=500.0, max_speed=110.0),
+        swarm_core.RobotAgent(id=1, x=80.0, y=80.0, max_speed=130.0),
+        swarm_core.RobotAgent(id=2, x=150.0, y=450.0, max_speed=120.0),
+        swarm_core.RobotAgent(id=3, x=400.0, y=300.0, max_speed=140.0),
+        swarm_core.RobotAgent(id=4, x=700.0, y=120.0, max_speed=125.0),
+        swarm_core.RobotAgent(id=5, x=650.0, y=500.0, max_speed=135.0),
     ]
 
     # Give them initial target velocities (linear velocity, angular velocity)
@@ -87,15 +92,16 @@ def main():
     dt = 1.0 / FPS  # Fixed delta time per frame
 
     while running:
-        # 1. Event Handling
+        # 2. Event Handling
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
 
-        # 3. Update Physics & Communication
-        # Run peer-to-peer radio sync
+        sim_time += dt
+        # 3. Communication sync
         comms.communicate(robots)
 
+        # 4. Physics & Cooperative Target Assignment
         for robot in robots:
             robot.step(dt, world_map)
 
@@ -103,9 +109,10 @@ def main():
             pose = robot.get_pose()
             if world_map.check_survivor(pose.x, pose.y):
                 print(
-                    f"[DISCOVERY] Robot {robot.get_id()} found a survivor at ({int(pose.x)}, {int(pose)})!"
+                    f"[DISCOVERY] Robot {robot.get_id()} found a survivor at ({int(pose.x)}, {int(pose.y)})!"
                 )
-                robot.add_survivor_memory(pose.x, pose.y)
+                robot.add_survivor_memory(pose.x, pose.y, visited=True)
+                robot.mark_survivor_visited(pose.x, pose.y)
 
             # Process inbox message received from teammates
             inbox = robot.get_inbox()
@@ -116,11 +123,11 @@ def main():
 
             # If robot has no active navigation target, look through know
             if not robot.has_target():
-                known = robot.get_known_survivors()
-                if known:
-                    # Pick the first knowm survivor as the navigation target
-                    target = known[0]
-                    robot.set_navigation_target(target.first, target.second)
+                for surv in robot.get_known_survivors():
+                    if not surv.visited:
+                        # Pick the first knowm survivor as the navigation target
+
+                        robot.set_navigation_target(surv.x, surv.y)
 
             # Step simulation
             # handles proportional steering and collision checks
@@ -129,19 +136,52 @@ def main():
             if robot.get_battery() <= 0:
                 robot.set_target_velocity(0.0, 0.0)
 
-        # 3. Rendering
+        # 5. Log metrics
+        sim_time = pygame.time.get_ticks() / 1000.0
+        metrics_logger.log_step(sim_time, robots, world_map, len(survivors_locations))
+
+        # 6. Rendering
         screen.fill(BG_COLOR)
 
-        # Render Grid  Map (Obstacle and Survivors)
+        # Render Grid  Map (Unknown vs Free vs Obstacle vs Survivor)
         for gy in range(GRID_ROWS):
             for gx in range(GRID_COLS):
                 state = world_map.get_cell(gx, gy)
                 rect = pygame.Rect(
                     gx * RESOLUTION, gy * RESOLUTION, RESOLUTION, RESOLUTION
                 )
-                if state == swarm_core.CellState.OBSTACLE:
+                if state == swarm_core.CellState.UNKNOWN:
+                    pygame.draw.rect(screen, UNKNOWN_COLOR, rect)
+
+                elif state == swarm_core.CellState.FREE:
+                    pygame.draw.rect(screen, FREE_COLOR, rect)
+                elif state == swarm_core.CellState.OBSTACLE:
                     pygame.draw.rect(screen, OBSTACLE_COLOR, rect)
-                    pygame.draw.rect(screen, (30, 30, 40), rect, 1)  # Grid cell border
+                    # Draw brick textured obstacle
+                    pygame.draw.rect(screen, (110, 55, 45), rect)
+                    # Mortar grid lines
+                    pygame.draw.line(
+                        screen,
+                        (45, 25, 20),
+                        (rect.left, rect.top),
+                        (rect.right, rect.top),
+                        1,
+                    )
+                    pygame.draw.line(
+                        screen,
+                        (45, 25, 20),
+                        (rect.left, rect.top),
+                        (rect.left, rect.bottom),
+                        1,
+                    )
+                    # Horizontal brick seam
+                    pygame.draw.line(
+                        screen,
+                        (45, 25, 20),
+                        (rect.left, rect.centery),
+                        (rect.right, rect.centery),
+                        1,
+                    )
                 elif state == swarm_core.CellState.SURVIVOR:
                     # Draw a glowing circle for survivors
                     center_x = int(gx * RESOLUTION + RESOLUTION / 2)
@@ -176,11 +216,11 @@ def main():
 
             # Draw know survivors in memory
             for surv in robot.get_known_survivors():
+                color = VISITED_SURVIVOR_COLOR if surv.visited else KNOWN_SURVIVOR_COLOR
                 pygame.draw.circle(
                     screen,
-                    KNOWN_SURVIVOR_COLOR,
-                    int(surv.first),
-                    int(surv.second),
+                    color,
+                    (int(surv.x), int(surv.y)),
                     8,
                     1,
                 )
