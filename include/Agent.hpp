@@ -67,7 +67,16 @@ class RobotAgent {
 
   double max_speed_;
   double battery_level_{100.0};  // Percentage
+  // obstacle avoidance
+  double lookahead_distance_{40.0};
+  double diverg_angle_{0.785};  // 45 degrees
+  double lookahead_gain_{0.7};
+  double steer_direction_gain_{1.5};
+  double vel_reduction_gain_{0.7};
+  double vel_reduction_deadend{0.3};
 
+  double kp_angular_{2.5};
+  double target_reached_threshold_{15.0};
   // Kinematic constraints
   double max_linear_accel_{1.5};    // m/s^2
   double max_angular_accel_{3.14};  // rad/s^2
@@ -82,8 +91,9 @@ class RobotAgent {
   std::vector<SurvivorRecord> known_survivors_;
 
   // Helper functions
-  void updateProportionalSteering();
-  void updateVelocities(double dt);
-  void updatePose(double dt, const GridMap& map);
-  void updateBattery(double dt);
+  // void updateNavigation();  // Navigation & steering
+  // void avoidObstacles(const GridMap& map);
+  // void updateVelocities(double dt);                // Velocity smoothing
+  // void updatePose(double dt, const GridMap& map);  // Physics & collision
+  // void updateBattery(double dt);                   // Battery Management
 };

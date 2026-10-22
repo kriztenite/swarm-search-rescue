@@ -61,82 +61,93 @@ void RobotAgent::mark_survivor_visited(double x, double y) {
 }
 
 void RobotAgent::step(double dt, const GridMap& map) {
-  updateProportionalSteering();
-  updateVelocities(dt);
-  updatePose(dt, map);
-  updateBattery(dt);
-}
+  bool obstacle_detected = false;
+  double avoidance_omega = 0.0;
+  double avoidance_linear = max_speed_;
 
-void RobotAgent::updateProportionalSteering() {
-  // If an active navigation target is set, compute proportional steering
-  // control
-  if (!has_target_)
-    return;
+  // 1. Proactive Obstacle Avoidance (Raycasting lookahead)
+  double lookahead_x = pose_.x + lookahead_distance_ * std::cos(pose_.theta);
+  double lookahead_y = pose_.y + lookahead_distance_ * std::sin(pose_.theta);
 
-  double dx = target_x_ - pose_.x;
-  double dy = target_y_ - pose_.y;
-  double distance = std::hypot(dx, dy);
+  if (map.is_collision(lookahead_x, lookahead_y)) {
+    obstacle_detected = true;
 
-  // If close enough to target, clear target
-  if (distance < 15.0) {
-    has_target_ = false;
-    target_vel_.linear = 0.0;
-    target_vel_.angular = 0.0;
-  } else {
-    // Compute desired heading angle
-    double target_theta = std::atan2(dy, dx);
-    double angle_error = target_theta - pose_.theta;
+    double left_angle = pose_.theta + 0.785;   // +45 degrees
+    double right_angle = pose_.theta - 0.785;  // -45 degrees
 
-    // Normalize angle error
-    angle_error = std::atan2(std::sin(angle_error), std::cos(angle_error));
+    double left_x =
+        pose_.x + (lookahead_distance_ * 0.7) * std::cos(left_angle);
+    double left_y =
+        pose_.y + (lookahead_distance_ * 0.7) * std::sin(left_angle);
 
-    // Proportional steering control
-    double kp_angular = 2.5;
-    double desired_omega = kp_angular * angle_error;
+    double right_x =
+        pose_.x + (lookahead_distance_ * 0.7) * std::cos(right_angle);
+    double right_y =
+        pose_.y + (lookahead_distance_ * 0.7) * std::sin(right_angle);
 
-    // Slow down linear speed when turning sharply
-    double desired_linear = max_speed_ * std::max(0.2, std::cos(angle_error));
+    bool left_clear = !map.is_collision(left_x, left_y);
+    bool right_clear = !map.is_collision(right_x, right_y);
 
-    target_vel_.linear = desired_linear;
-    target_vel_.angular = desired_omega;
+    // Assign ABSOLUTE turning velocities (no cumulative += bug)
+    if (left_clear && !right_clear) {
+      avoidance_omega = 2.0;  // Turn left safely
+      avoidance_linear = max_speed_ * 0.5;
+    } else if (right_clear && !left_clear) {
+      avoidance_omega = -2.0;  // Turn right safely
+      avoidance_linear = max_speed_ * 0.5;
+    } else {
+      avoidance_omega = 2.5;  // Spin out of corner
+      avoidance_linear = 0.1;
+    }
   }
-}
 
-void RobotAgent::updatePose(double dt, const GridMap& map) {
-  // Predict the next position using unicycle kinematics
+  // 2. Navigation Control (Only active if NOT dodging an obstacle)
+  if (obstacle_detected) {
+    target_vel_.linear = avoidance_linear;
+    target_vel_.angular = avoidance_omega;
+  } else if (has_target_) {
+    double dx = target_x_ - pose_.x;
+    double dy = target_y_ - pose_.y;
+    double distance = std::hypot(dx, dy);
+
+    if (distance < target_reached_threshold_) {
+      has_target_ = false;
+      target_vel_.linear = 0.0;
+      target_vel_.angular = 0.0;
+    } else {
+      double target_theta = std::atan2(dy, dx);
+      double angle_error = std::atan2(std::sin(target_theta - pose_.theta),
+                                      std::cos(target_theta - pose_.theta));
+
+      target_vel_.angular = kp_angular_ * angle_error;
+      target_vel_.linear = max_speed_ * std::max(0.2, std::cos(angle_error));
+    }
+  }
+
+  // 3. Apply acceleration limits
+  double dv = target_vel_.linear - current_vel_.linear;
+  current_vel_.linear +=
+      std::clamp(dv, -max_linear_accel_ * dt, max_linear_accel_ * dt);
+
+  double domega = target_vel_.angular - current_vel_.angular;
+  current_vel_.angular +=
+      std::clamp(domega, -max_angular_accel_ * dt, max_angular_accel_ * dt);
+
+  // 4. Update Position
   double next_x = pose_.x + current_vel_.linear * std::cos(pose_.theta) * dt;
   double next_y = pose_.y + current_vel_.linear * std::sin(pose_.theta) * dt;
 
-  // Check if the predicted position collides with an obstacle on the GridMap
   if (!map.is_collision(next_x, next_y)) {
-    // Safe to move
     pose_.x = next_x;
     pose_.y = next_y;
   } else {
-    // Collision detected: stop linear velocity and reverse target slightly
     current_vel_.linear = 0.0;
-    target_vel_.linear = -target_vel_.linear * 0.5;
   }
 
   pose_.theta += current_vel_.angular * dt;
-  // Normalize theta to [-pi, pi]
   pose_.theta = std::atan2(std::sin(pose_.theta), std::cos(pose_.theta));
-}
 
-void RobotAgent::updateVelocities(double dt) {
-  // Apply acceleration limits
-  double dv = target_vel_.linear - current_vel_.linear;
-  double max_dv = max_linear_accel_ * dt;
-  current_vel_.linear += std::clamp(dv, -max_dv, max_dv);
-
-  // Appyly acceleration limits to angular velocity
-  double domega = target_vel_.angular - current_vel_.angular;
-  double max_domega = max_angular_accel_ * dt;
-  current_vel_.angular += std::clamp(domega, -max_domega, max_domega);
-}
-
-void RobotAgent::updateBattery(double dt) {
-  // Deplete battery proportionally to movement
+  // 5. Battery drain
   double speed_factor =
       std::abs(current_vel_.linear) + std::abs(current_vel_.angular) * 0.2;
   battery_level_ =
