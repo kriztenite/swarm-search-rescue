@@ -8,6 +8,10 @@
 
 struct Message {
   int sender_id{0};
+  int origin_id{0};
+  int message_id{0};
+  int hop_count{0};
+  int max_hops{5};
   double survivor_x{0.0};
   double survivor_y{0.0};
   bool survivor_found{false};
@@ -24,6 +28,7 @@ struct SurvivorRecord {
 
 struct RobotConfig {
   double max_speed{130.0};
+  double max_angular_vel{2.5};
   double max_linear_accel{1.5};
   double max_angular_accel{3.14};
   double target_reached_threshold{15.0};
@@ -48,6 +53,7 @@ class RobotAgent {
  public:
   RobotAgent(int id, double x, double y,
              const RobotConfig& config = RobotConfig{});
+
   void step(double dt, double current_time, const GridMap& map);
   void set_target_velocity(double v, double omega);
 
@@ -57,7 +63,8 @@ class RobotAgent {
   // Communication inbox methods
   void receive_message(const Message& msg);
   const std::vector<Message>& get_inbox() const { return inbox_; }
-  void clear_inbox();
+  const std::vector<Message>& get_outbox() const { return outbox_; }
+  void clear_inboxes();
 
   // Getters
   const Pose& get_pose() const { return pose_; }
@@ -89,5 +96,7 @@ class RobotAgent {
 
   // Local agent memory and communication state
   std::vector<Message> inbox_;
+  std::vector<Message> outbox_;
+  std::vector<int> seen_message_ids_;
   std::vector<SurvivorRecord> known_survivors_;
 };

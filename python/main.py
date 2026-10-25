@@ -64,7 +64,7 @@ def main():
         world_map.set_cell(GRID_COLS - 1, y, swarm_core.CellState.OBSTACLE)
 
     # Add some internal obstacles
-    for y in range(5, 15):
+    for y in range(8, 15):
         world_map.set_cell(15, y, swarm_core.CellState.OBSTACLE)
     for x in range(20, 30):
         world_map.set_cell(x, 20, swarm_core.CellState.OBSTACLE)

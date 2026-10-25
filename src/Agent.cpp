@@ -11,10 +11,13 @@ RobotAgent::RobotAgent(int id, double x, double y, const RobotConfig& config)
 }
 
 void RobotAgent::set_target_velocity(double v, double omega) {
+  if (std::isnan(v) || std::isnan(omega))
+    return;
+
   has_target_ = false;  // Overide to disable active navigation
   target_vel_.linear = std::clamp(v, -config_.max_speed, config_.max_speed);
   target_vel_.angular =
-      std::clamp(omega, -config_.max_angular_accel, config_.max_angular_accel);
+      std::clamp(omega, -config_.max_angular_vel, config_.max_angular_vel);
 }
 
 void RobotAgent::set_navigation_target(double tx, double ty) {
@@ -26,11 +29,24 @@ void RobotAgent::set_navigation_target(double tx, double ty) {
 }
 
 void RobotAgent::receive_message(const Message& msg) {
-  inbox_.push_back(msg);
+  // Check if we've seen this message ID to prevent broadcast storms
+  auto it = std::find(seen_message_ids_.begin(), seen_message_ids_.end(),
+                      msg.message_id);
+  if (it == seen_message_ids_.end() && msg.hop_count < msg.max_hops) {
+    seen_message_ids_.push_back(msg.message_id);
+    inbox_.push_back(msg);
+
+    // Prepare for multi-hop relaying
+    Message relay_msg = msg;
+    relay_msg.sender_id = id_;
+    relay_msg.hop_count += 1;
+    outbox_.push_back(relay_msg);
+  }
 }
 
-void RobotAgent::clear_inbox() {
+void RobotAgent::clear_inboxes() {
   inbox_.clear();
+  // Keep outbox populated briefly for mesh propagation across neighbors
 }
 
 void RobotAgent::add_survivor_memory(double x, double y, bool visited,
@@ -42,10 +58,20 @@ void RobotAgent::add_survivor_memory(double x, double y, bool visited,
                          });
   if (it == known_survivors_.end()) {
     known_survivors_.push_back({x, y, visited, current_time});
-  } else {
-    if (visited && !it->visited) {
-      it->visited = true;
-    }
+
+    // Generate a unique message ID for mesh broadcasting
+    int msg_id = id_ * 1000 + static_cast<int>(current_time * 10) +
+                 known_survivors_.size();
+    seen_message_ids_.push_back(msg_id);
+
+    Message new_msg{id_, id_, msg_id, 0, 5, x, y, true, visited, current_time};
+    outbox_.push_back(new_msg);
+  } else if (visited && !it->visited) {
+    it->visited = true;
+    // Broadcast updated visited status
+    int msg_id = id_ * 2000 + static_cast<int>(current_time * 10);
+    Message update_msg{id_, id_, msg_id, 0, 5, x, y, true, true, current_time};
+    outbox_.push_back(update_msg);
   }
 }
 
@@ -72,6 +98,15 @@ void RobotAgent::step(double dt, double current_time, const GridMap& map) {
   // Prune stale unvisited memories periodically
   prune_expired_memories(current_time);
 
+  // stop robot if battery is exhausted
+  if (battery_level_ <= 0.0) {
+    target_vel_.linear = 0.0;
+    target_vel_.angular = 0.0;
+    current_vel_.linear = 0.0;
+    current_vel_.angular = 0.0;
+    return;
+  }
+
   // 1. Navigation & Proportional Steering Contorl
   if (has_target_) {
     double dx = target_x_ - pose_.x;
@@ -93,7 +128,8 @@ void RobotAgent::step(double dt, double current_time, const GridMap& map) {
           config_.max_speed * std::max(0.2, std::cos(angle_error));
 
       target_vel_.linear = desired_linear;
-      target_vel_.angular = desired_omega;
+      target_vel_.angular = std::clamp(desired_omega, -config_.max_angular_vel,
+                                       config_.max_angular_vel);
     }
   }
   // 2. Proactive Obstacle Avoidance(Raycasting lookahead)
@@ -121,13 +157,16 @@ void RobotAgent::step(double dt, double current_time, const GridMap& map) {
 
     // Assign ABSOLUTE turning velocities (no cumulative += bug)
     if (left_clear && !right_clear) {
-      target_vel_.angular += 1.5;  // Turn left safely
-      target_vel_.linear *= 0.7;
+      target_vel_.angular = 1.0;  // Turn left safely
+      target_vel_.linear *= 0.8;  // slow down slightly
     } else if (right_clear && !left_clear) {
-      target_vel_.angular = -1.5;  // Turn right safely
+      target_vel_.angular = -1.0;  // Turn right safely
       target_vel_.linear *= 0.7;
+    } else if (!left_clear && !right_clear) {
+      target_vel_.linear = -config_.max_speed * 0.5;
+      target_vel_.angular = 0.0;  // Don't spin
     } else {
-      target_vel_.angular += 2.0;  // Spin out of corner
+      target_vel_.angular = 2.0;  // Spin out of corner
       target_vel_.linear *= 0.3;
     }
   }
@@ -153,11 +192,19 @@ void RobotAgent::step(double dt, double current_time, const GridMap& map) {
   }
 
   pose_.theta += current_vel_.angular * dt;
-  pose_.theta = std::atan2(std::sin(pose_.theta), std::cos(pose_.theta));
+
+  // Normalize theat to [-π, π]
+  // pose_.theta = std::atan2(std::sin(pose_.theta), std::cos(pose_.theta));
+  while (pose_.theta > M_PI)
+    pose_.theta -= 2 * M_PI;
+  while (pose_.theta < -M_PI)
+    pose_.theta += 2 * M_PI;
 
   // 5. Battery drain
   double speed_factor =
       std::abs(current_vel_.linear) + std::abs(current_vel_.angular) * 0.2;
-  battery_level_ =
-      std::max(0.0, battery_level_ - (0.05 + 0.1 * speed_factor) * dt);
+  if (speed_factor > 0.0) {
+    battery_level_ -= (0.1 * speed_factor) * dt;
+  }
+  battery_level_ = std::max(0.0, battery_level_);
 }

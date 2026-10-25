@@ -57,10 +57,15 @@ PYBIND11_MODULE(swarm_core, m) {
   py::class_<Message>(m, "Message")
       .def(py::init<>())
       .def_readwrite("sender_id", &Message::sender_id)
+      .def_readwrite("origin_id", &Message::origin_id)
+      .def_readwrite("message_id", &Message::message_id)
+      .def_readwrite("hop_count", &Message::hop_count)
+      .def_readwrite("max_hops", &Message::max_hops)
       .def_readwrite("survivor_x", &Message::survivor_x)
       .def_readwrite("survivor_y", &Message::survivor_y)
       .def_readwrite("survivor_found", &Message::survivor_found)
-      .def_readwrite("visited", &Message::visited);
+      .def_readwrite("visited", &Message::visited)
+      .def_readwrite("timestamp", &Message::timestamp);
 
   //  Expose the RobotAgent class and its public methods
   py::class_<RobotAgent>(m, "RobotAgent")
@@ -78,7 +83,7 @@ PYBIND11_MODULE(swarm_core, m) {
       .def("receive_message", &RobotAgent::receive_message, py::arg("msg"))
       .def("get_inbox", &RobotAgent::get_inbox,
            "Returns vector of received messages")
-      .def("clear_inbox", &RobotAgent::clear_inbox)
+      .def("clear_inbox", &RobotAgent::clear_inboxes)
       .def("get_pose", &RobotAgent::get_pose, "Returns current Pose struct")
       .def("get_id", &RobotAgent::get_id)
       .def("get_battery", &RobotAgent::get_battery,
