@@ -7,17 +7,30 @@
 #include "GridMap.hpp"
 
 struct Message {
-  int sender_id;
-  double survivor_x;
-  double survivor_y;
-  bool survivor_found;
+  int sender_id{0};
+  double survivor_x{0.0};
+  double survivor_y{0.0};
+  bool survivor_found{false};
   bool visited{false};
+  double timestamp{0.0};
 };
 
 struct SurvivorRecord {
-  double x;
-  double y;
+  double x{0.0};
+  double y{0.0};
   bool visited{false};
+  double timestamp{0.0};
+};
+
+struct RobotConfig {
+  double max_speed{130.0};
+  double max_linear_accel{1.5};
+  double max_angular_accel{3.14};
+  double target_reached_threshold{15.0};
+  double lookahead_distance{40.0};
+  double kp_angular{2.5};
+  double survivor_ttl{120.0};  // Time-to-live in seconds
+  double duplicate_cluster_radius{25.0};
 };
 
 struct Pose {
@@ -33,12 +46,11 @@ struct Velocity {
 
 class RobotAgent {
  public:
-  RobotAgent(int id, double x, double y, double max_speed = 2.0);
-
-  void step(double dt, const GridMap& map);
+  RobotAgent(int id, double x, double y,
+             const RobotConfig& config = RobotConfig{});
+  void step(double dt, double current_time, const GridMap& map);
   void set_target_velocity(double v, double omega);
 
-  // Set a physical world coordinate target for navigation
   void set_navigation_target(double tx, double ty);
   bool has_target() const { return has_target_; }
 
@@ -48,7 +60,7 @@ class RobotAgent {
   void clear_inbox();
 
   // Getters
-  Pose get_pose() const { return pose_; }
+  const Pose& get_pose() const { return pose_; }
   int get_id() const { return id_; }
   double get_battery() const { return battery_level_; }
   const std::vector<SurvivorRecord>& get_known_survivors() const {
@@ -56,8 +68,10 @@ class RobotAgent {
   }
 
   // Add a discovered survivor to local memory
-  void add_survivor_memory(double x, double y, bool visited = false);
+  void add_survivor_memory(double x, double y, bool visited,
+                           double current_time);
   void mark_survivor_visited(double x, double y);
+  void prune_expired_memories(double current_time);
 
  private:
   int id_;
@@ -65,21 +79,8 @@ class RobotAgent {
   Velocity current_vel_;
   Velocity target_vel_;
 
-  double max_speed_;
-  double battery_level_{100.0};  // Percentage
-  // obstacle avoidance
-  double lookahead_distance_{40.0};
-  double diverg_angle_{0.785};  // 45 degrees
-  double lookahead_gain_{0.7};
-  double steer_direction_gain_{1.5};
-  double vel_reduction_gain_{0.7};
-  double vel_reduction_deadend{0.3};
-
-  double kp_angular_{2.5};
-  double target_reached_threshold_{15.0};
-  // Kinematic constraints
-  double max_linear_accel_{1.5};    // m/s^2
-  double max_angular_accel_{3.14};  // rad/s^2
+  RobotConfig config_;
+  double battery_level_{100.0};
 
   // Navigate target state
   bool has_target_{false};
@@ -89,11 +90,4 @@ class RobotAgent {
   // Local agent memory and communication state
   std::vector<Message> inbox_;
   std::vector<SurvivorRecord> known_survivors_;
-
-  // Helper functions
-  // void updateNavigation();  // Navigation & steering
-  // void avoidObstacles(const GridMap& map);
-  // void updateVelocities(double dt);                // Velocity smoothing
-  // void updatePose(double dt, const GridMap& map);  // Physics & collision
-  // void updateBattery(double dt);                   // Battery Management
 };

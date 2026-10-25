@@ -51,7 +51,8 @@ PYBIND11_MODULE(swarm_core, m) {
       .def(py::init<>())
       .def_readwrite("x", &SurvivorRecord::x)
       .def_readwrite("y", &SurvivorRecord::y)
-      .def_readwrite("visited", &SurvivorRecord::visited);
+      .def_readwrite("visited", &SurvivorRecord::visited)
+      .def_readwrite("timestamp", &SurvivorRecord::timestamp);
 
   py::class_<Message>(m, "Message")
       .def(py::init<>())
@@ -64,31 +65,31 @@ PYBIND11_MODULE(swarm_core, m) {
   //  Expose the RobotAgent class and its public methods
   py::class_<RobotAgent>(m, "RobotAgent")
       // Expose the constructor with default argument max_speed = 2.0
-      .def(py::init<int, double, double, double>(), py::arg("id"), py::arg("x"),
-           py::arg("y"), py::arg("max_speed") = 2.0)
+      .def(py::init<int, double, double>(), py::arg("id"), py::arg("x"),
+           py::arg("y"))
       // Expose member functions
-      .def("step", &RobotAgent::step, py::arg("dt"), py::arg("map"),
-           "Update kinematic state by dt seconds")
+      .def("step", &RobotAgent::step, py::arg("dt"), py::arg("current_time"),
+           py::arg("map"), "Update kinematic state by dt seconds")
       .def("set_target_velocity", &RobotAgent::set_target_velocity,
            py::arg("v"), py::arg("omega"))
-      .def("get_pose", &RobotAgent::get_pose, "Returns current Pose struct")
-      .def("get_id", &RobotAgent::get_id)
-      .def("get_battery", &RobotAgent::get_battery,
-           "Returns battery percentage (0-100)")
-      // Add Messaging and memory methods
+      .def("set_navigation_target", &RobotAgent::set_navigation_target,
+           py::arg("tx"), py::arg("ty"))
+      .def("has_target", &RobotAgent::has_target)
       .def("receive_message", &RobotAgent::receive_message, py::arg("msg"))
       .def("get_inbox", &RobotAgent::get_inbox,
            "Returns vector of received messages")
       .def("clear_inbox", &RobotAgent::clear_inbox)
+      .def("get_pose", &RobotAgent::get_pose, "Returns current Pose struct")
+      .def("get_id", &RobotAgent::get_id)
+      .def("get_battery", &RobotAgent::get_battery,
+           "Returns battery percentage (0-100)")
       .def("get_known_survivors", &RobotAgent::get_known_survivors,
            "Returns list of known survivor cordinates")
       .def("add_survivor_memory", &RobotAgent::add_survivor_memory,
-           py::arg("x"), py::arg("y"), py::arg("visited"))
+           py::arg("x"), py::arg("y"), py::arg("visited"),
+           py::arg("current_time"))
       .def("mark_survivor_visited", &RobotAgent::mark_survivor_visited,
-           py::arg("x"), py::arg("y"))
-      .def("set_navigation_target", &RobotAgent::set_navigation_target,
-           py::arg("tx"), py::arg("ty"))
-      .def("has_target", &RobotAgent::has_target);
+           py::arg("x"), py::arg("y"));
 
   // Expose CommsManager
   py::class_<CommsManager>(m, "CommsManager")

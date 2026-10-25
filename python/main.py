@@ -76,11 +76,11 @@ def main():
 
     # Instantiate Robots close enough to communicate or wander into range
     robots = [
-        swarm_core.RobotAgent(id=1, x=80.0, y=80.0, max_speed=130.0),
-        swarm_core.RobotAgent(id=2, x=150.0, y=450.0, max_speed=120.0),
-        swarm_core.RobotAgent(id=3, x=400.0, y=300.0, max_speed=140.0),
-        swarm_core.RobotAgent(id=4, x=700.0, y=120.0, max_speed=125.0),
-        swarm_core.RobotAgent(id=5, x=650.0, y=500.0, max_speed=135.0),
+        swarm_core.RobotAgent(id=1, x=100.0, y=180.0),
+        swarm_core.RobotAgent(id=2, x=250.0, y=450.0),
+        swarm_core.RobotAgent(id=3, x=400.0, y=300.0),
+        swarm_core.RobotAgent(id=4, x=700.0, y=120.0),
+        swarm_core.RobotAgent(id=5, x=550.0, y=500.0),
     ]
 
     # Give them initial target velocities (linear velocity, angular velocity)
@@ -103,15 +103,19 @@ def main():
 
         # 4. Physics & Cooperative Target Assignment
         for robot in robots:
-            robot.step(dt, world_map)
+            robot.step(dt, sim_time, world_map)
 
             # Check if there is a survivor locally
             pose = robot.get_pose()
+
+            # Reveal unknown map cells within sensor range
+            world_map.reveal_radius(pose.x, pose.y, sensor_range=80)
+
             if world_map.check_survivor(pose.x, pose.y):
                 print(
                     f"[DISCOVERY] Robot {robot.get_id()} found a survivor at ({int(pose.x)}, {int(pose.y)})!"
                 )
-                robot.add_survivor_memory(pose.x, pose.y, visited=True)
+                robot.add_survivor_memory(pose.x, pose.y, True, sim_time)
                 robot.mark_survivor_visited(pose.x, pose.y)
 
             # Process inbox message received from teammates
@@ -119,26 +123,28 @@ def main():
             for msg in inbox:
                 # Store shared survivor location into local memory
                 if msg.survivor_found:
-                    robot.add_survivor_memory(msg.survivor_x, msg.survivor_y)
+                    robot.add_survivor_memory(
+                        msg.survivor_x, msg.survivor_y, msg.visited, sim_time
+                    )
 
-            # If robot has no active navigation target, look through know
+            # Pick next unvisited target
             if not robot.has_target():
                 for surv in robot.get_known_survivors():
                     if not surv.visited:
-                        # Pick the first knowm survivor as the navigation target
-
                         robot.set_navigation_target(surv.x, surv.y)
+                        break
 
             # Step simulation
-            # handles proportional steering and collision checks
-            robot.step(dt, world_map)
+            robot.step(dt, sim_time, world_map)
 
             if robot.get_battery() <= 0:
                 robot.set_target_velocity(0.0, 0.0)
 
-        # 5. Log metrics
-        sim_time = pygame.time.get_ticks() / 1000.0
-        metrics_logger.log_step(sim_time, robots, world_map, len(survivors_locations))
+        # 5. Log metrics every second
+        if int(sim_time * FPS) % FPS == 0:
+            metrics_logger.log_step(
+                sim_time, robots, world_map, len(survivors_locations)
+            )
 
         # 6. Rendering
         screen.fill(BG_COLOR)
@@ -192,7 +198,7 @@ def main():
                         (center_x, center_y),
                         int(RESOLUTION / 3),
                     )
-        # Render comms links between connected robots
+        # Render comms links
         for i in range(len(robots)):
             for j in range(i + 1, len(robots)):
                 p1 = robots[i].get_pose()

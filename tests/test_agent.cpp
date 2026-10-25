@@ -8,7 +8,7 @@
 #include "GridMap.hpp"
 
 void test_initial_state() {
-  RobotAgent agent(1, 100.0, 200.0, 50.0);
+  RobotAgent agent(1, 100.0, 200.0);
   Pose pose = agent.get_pose();
 
   assert(agent.get_id() == 1);
@@ -26,14 +26,17 @@ void test_linear_motion_with_map() {
   // Place an obstacle at grid cell (5, 0) -> world x: [50, 60], y: [0, 10]
   map.set_cell(5, 0, CellState::OBSTACLE);
 
+  RobotConfig config;
+  config.max_speed = 100.0;
+
   // Agent starts at x=30.0, y=5.0 moving right
-  RobotAgent agent(1, 30.0, 50, 100.0);
+  RobotAgent agent(1, 30.0, 5.0, config);
   agent.set_target_velocity(10.0, 0.0);
 
   // Step simulation forward
-  agent.step(1.0, map);
+  agent.step(1.0, 0.0, map);
 
-  Pose pose = agent.get_pose();
+  const Pose& pose = agent.get_pose();
   assert(pose.x > 30.0);  // should move forward safely
   std::cout << "[PASSED] test_linear_motion_with_map\n";
 }
@@ -45,16 +48,16 @@ void test_obstacle_collision_stop() {
   // Put an obstacle right in front of the robot at x: [40, 50)
   map.set_cell(4, 0, CellState::OBSTACLE);
 
+  RobotConfig config;
+  config.max_speed = 100.0;
   // Agent starts at x=35.0, y=5.0 moving right towards the obstacle
-  RobotAgent agent(1, 35.0, 5.0, 100.0);
+  RobotAgent agent(1, 35.0, 5.0, config);
   agent.set_target_velocity(20.0, 0.0);
 
   // Step simulation enough to hit the obstacle zone
-  agent.step(1.0, map);
+  agent.step(1.0, 0.0, map);
 
-  Pose pose = agent.get_pose();
-  // It should have hit the collision check and stopped before or at the
-  // obstacle boundary (40.0)
+  const Pose pose = agent.get_pose();
   assert(pose.x <= 40.0);
   std::cout << "[PASSED] test_obstacle_collision_stop\n";
 }
@@ -82,11 +85,11 @@ void test_communication_sync() {
 
   std::vector<RobotAgent> agents;
 
-  agents.emplace_back(1, 100.0, 100.0, 50.0);
-  agents.emplace_back(2, 150.0, 100.0, 50.0);
+  agents.emplace_back(1, 100.0, 100.0);
+  agents.emplace_back(2, 150.0, 100.0);
 
   // Agent 1 discovers a survivor and records it in memory
-  agents[0].add_survivor_memory(300.0, 300.0);
+  agents[0].add_survivor_memory(300.0, 300.0, false, 0.0);
 
   // Run communication manager
   comms_mgr.communicate(agents);
@@ -102,19 +105,20 @@ void test_communication_sync() {
 
 void test_goal_directed_navigation() {
   GridMap map(20, 20, 20.0);
-  RobotAgent agent(1, 100.0, 100.0, 100.0);
+  RobotConfig config;
+  config.max_speed = 100.0;
+  RobotAgent agent(1, 100.0, 100.0, config);
 
   // Set target destination far to the right
   agent.set_navigation_target(200.0, 100.0);
   assert(agent.has_target() == true);
 
-  Pose initial_pose = agent.get_pose();
-
+  const Pose& initial_pose = agent.get_pose();
   // Step simulation forward to let proportional steering drive the robot
   for (int i = 0; i < 10; ++i)
-    agent.step(0.1, map);
+    agent.step(0.1, i * 0.1, map);
 
-  Pose updated_pose = agent.get_pose();
+  const Pose& updated_pose = agent.get_pose();
   // robot should have moved closer to x = 200.0
   assert(updated_pose.x > initial_pose.x);
 
@@ -123,15 +127,16 @@ void test_goal_directed_navigation() {
 
 void test_battery_depletion() {
   GridMap map(10.0, 10.0, 10.0);
+  RobotConfig config;
 
-  RobotAgent agent(1, 0.0, 0.0, 100.0);
+  RobotAgent agent(1, 0.0, 0.0, config);
   agent.set_target_velocity(20.0, 1.0);
 
   double initial_battery = agent.get_battery();
 
   // Run for several steps
   for (int i = 0; i < 10; ++i) {
-    agent.step(0.1, map);
+    agent.step(0.1, i * 0.1, map);
   }
 
   assert(agent.get_battery() < initial_battery);

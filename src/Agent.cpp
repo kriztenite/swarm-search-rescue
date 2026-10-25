@@ -1,9 +1,10 @@
 #include "Agent.hpp"
 
 #include <algorithm>
+#include <stdexcept>
 
-RobotAgent::RobotAgent(int id, double x, double y, double max_speed)
-    : id_(id), max_speed_(max_speed) {
+RobotAgent::RobotAgent(int id, double x, double y, const RobotConfig& config)
+    : id_(id), config_(config) {
   pose_.x = x;
   pose_.y = y;
   pose_.theta = 0.0;
@@ -11,127 +12,134 @@ RobotAgent::RobotAgent(int id, double x, double y, double max_speed)
 
 void RobotAgent::set_target_velocity(double v, double omega) {
   has_target_ = false;  // Overide to disable active navigation
-  target_vel_.linear = std::clamp(v, -max_speed_, max_speed_);
-  target_vel_.angular = omega;
+  target_vel_.linear = std::clamp(v, -config_.max_speed, config_.max_speed);
+  target_vel_.angular =
+      std::clamp(omega, -config_.max_angular_accel, config_.max_angular_accel);
 }
 
 void RobotAgent::set_navigation_target(double tx, double ty) {
+  if (std::isnan(tx) || std::isnan(ty))
+    return;
   target_x_ = tx;
   target_y_ = ty;
   has_target_ = true;
 }
 
 void RobotAgent::receive_message(const Message& msg) {
-  // Avoid storing duplicate messages
-  auto exists = std::any_of(known_survivors_.begin(), known_survivors_.end(),
-                            [&msg](const SurvivorRecord& rec) {
-                              return std::hypot(rec.x - msg.survivor_x,
-                                                rec.y - msg.survivor_y) < 25.0;
-                            });
-  if (!exists) {
-    inbox_.push_back(msg);
-    add_survivor_memory(msg.survivor_x, msg.survivor_y);
-  }
+  inbox_.push_back(msg);
 }
 
 void RobotAgent::clear_inbox() {
   inbox_.clear();
 }
 
-void RobotAgent::add_survivor_memory(double x, double y, bool visited) {
-  // Avoid duplicates
+void RobotAgent::add_survivor_memory(double x, double y, bool visited,
+                                     double current_time) {
   auto it = std::find_if(known_survivors_.begin(), known_survivors_.end(),
-                         [x, y](const SurvivorRecord& pos) {
-                           return std::hypot(pos.x - x, pos.y - y);
+                         [this, x, y](const SurvivorRecord& rec) {
+                           return std::hypot(rec.x - x, rec.y - y) <
+                                  config_.duplicate_cluster_radius;
                          });
   if (it == known_survivors_.end()) {
-    known_survivors_.push_back({x, y, visited});
+    known_survivors_.push_back({x, y, visited, current_time});
   } else {
-    if (visited)
+    if (visited && !it->visited) {
       it->visited = true;
+    }
   }
 }
 
 void RobotAgent::mark_survivor_visited(double x, double y) {
   for (auto& rec : known_survivors_) {
-    if (std::hypot(rec.x - x, rec.y - y) < 25.0) {
+    if (std::hypot(rec.x - x, rec.y - y) < config_.duplicate_cluster_radius) {
       rec.visited = true;
     }
   }
 }
 
-void RobotAgent::step(double dt, const GridMap& map) {
-  bool obstacle_detected = false;
-  double avoidance_omega = 0.0;
-  double avoidance_linear = max_speed_;
+void RobotAgent::prune_expired_memories(double current_time) {
+  // Remove unvisited memories that exceed TTL
+  known_survivors_.erase(
+      std::remove_if(known_survivors_.begin(), known_survivors_.end(),
+                     [this, current_time](const SurvivorRecord& rec) {
+                       return !rec.visited && (current_time - rec.timestamp >
+                                               config_.survivor_ttl);
+                     }),
+      known_survivors_.end());
+}
 
-  // 1. Proactive Obstacle Avoidance (Raycasting lookahead)
-  double lookahead_x = pose_.x + lookahead_distance_ * std::cos(pose_.theta);
-  double lookahead_y = pose_.y + lookahead_distance_ * std::sin(pose_.theta);
+void RobotAgent::step(double dt, double current_time, const GridMap& map) {
+  // Prune stale unvisited memories periodically
+  prune_expired_memories(current_time);
+
+  // 1. Navigation & Proportional Steering Contorl
+  if (has_target_) {
+    double dx = target_x_ - pose_.x;
+    double dy = target_y_ - pose_.y;
+    double distance = std::hypot(dx, dy);
+
+    if (distance < config_.target_reached_threshold) {
+      has_target_ = false;
+      target_vel_.linear = 0.0;
+      target_vel_.angular = 0.0;
+
+    } else {
+      double target_theta = std::atan2(dy, dx);
+      double angle_error = std::atan2(std::sin(target_theta - pose_.theta),
+                                      std::cos(target_theta - pose_.theta));
+
+      double desired_omega = config_.kp_angular * angle_error;
+      double desired_linear =
+          config_.max_speed * std::max(0.2, std::cos(angle_error));
+
+      target_vel_.linear = desired_linear;
+      target_vel_.angular = desired_omega;
+    }
+  }
+  // 2. Proactive Obstacle Avoidance(Raycasting lookahead)
+  double lookahead_x =
+      pose_.x + config_.lookahead_distance * std::cos(pose_.theta);
+  double lookahead_y =
+      pose_.y + config_.lookahead_distance * std::sin(pose_.theta);
 
   if (map.is_collision(lookahead_x, lookahead_y)) {
-    obstacle_detected = true;
-
     double left_angle = pose_.theta + 0.785;   // +45 degrees
     double right_angle = pose_.theta - 0.785;  // -45 degrees
 
     double left_x =
-        pose_.x + (lookahead_distance_ * 0.7) * std::cos(left_angle);
+        pose_.x + (config_.lookahead_distance * 0.7) * std::cos(left_angle);
     double left_y =
-        pose_.y + (lookahead_distance_ * 0.7) * std::sin(left_angle);
+        pose_.y + (config_.lookahead_distance * 0.7) * std::sin(left_angle);
 
     double right_x =
-        pose_.x + (lookahead_distance_ * 0.7) * std::cos(right_angle);
+        pose_.x + (config_.lookahead_distance * 0.7) * std::cos(right_angle);
     double right_y =
-        pose_.y + (lookahead_distance_ * 0.7) * std::sin(right_angle);
+        pose_.y + (config_.lookahead_distance * 0.7) * std::sin(right_angle);
 
     bool left_clear = !map.is_collision(left_x, left_y);
     bool right_clear = !map.is_collision(right_x, right_y);
 
     // Assign ABSOLUTE turning velocities (no cumulative += bug)
     if (left_clear && !right_clear) {
-      avoidance_omega = 2.0;  // Turn left safely
-      avoidance_linear = max_speed_ * 0.5;
+      target_vel_.angular += 1.5;  // Turn left safely
+      target_vel_.linear *= 0.7;
     } else if (right_clear && !left_clear) {
-      avoidance_omega = -2.0;  // Turn right safely
-      avoidance_linear = max_speed_ * 0.5;
+      target_vel_.angular = -1.5;  // Turn right safely
+      target_vel_.linear *= 0.7;
     } else {
-      avoidance_omega = 2.5;  // Spin out of corner
-      avoidance_linear = 0.1;
-    }
-  }
-
-  // 2. Navigation Control (Only active if NOT dodging an obstacle)
-  if (obstacle_detected) {
-    target_vel_.linear = avoidance_linear;
-    target_vel_.angular = avoidance_omega;
-  } else if (has_target_) {
-    double dx = target_x_ - pose_.x;
-    double dy = target_y_ - pose_.y;
-    double distance = std::hypot(dx, dy);
-
-    if (distance < target_reached_threshold_) {
-      has_target_ = false;
-      target_vel_.linear = 0.0;
-      target_vel_.angular = 0.0;
-    } else {
-      double target_theta = std::atan2(dy, dx);
-      double angle_error = std::atan2(std::sin(target_theta - pose_.theta),
-                                      std::cos(target_theta - pose_.theta));
-
-      target_vel_.angular = kp_angular_ * angle_error;
-      target_vel_.linear = max_speed_ * std::max(0.2, std::cos(angle_error));
+      target_vel_.angular += 2.0;  // Spin out of corner
+      target_vel_.linear *= 0.3;
     }
   }
 
   // 3. Apply acceleration limits
   double dv = target_vel_.linear - current_vel_.linear;
-  current_vel_.linear +=
-      std::clamp(dv, -max_linear_accel_ * dt, max_linear_accel_ * dt);
+  current_vel_.linear += std::clamp(dv, -config_.max_linear_accel * dt,
+                                    config_.max_linear_accel * dt);
 
   double domega = target_vel_.angular - current_vel_.angular;
-  current_vel_.angular +=
-      std::clamp(domega, -max_angular_accel_ * dt, max_angular_accel_ * dt);
+  current_vel_.angular += std::clamp(domega, -config_.max_angular_accel * dt,
+                                     config_.max_angular_accel * dt);
 
   // 4. Update Position
   double next_x = pose_.x + current_vel_.linear * std::cos(pose_.theta) * dt;
