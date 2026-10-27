@@ -1,7 +1,7 @@
-#include "Agent.hpp"
-
 #include <algorithm>
 #include <stdexcept>
+
+#include "Agent.hpp"
 
 RobotAgent::RobotAgent(int id, double x, double y, const RobotConfig& config)
     : id_(id), config_(config) {
@@ -98,6 +98,43 @@ void RobotAgent::step(double dt, double current_time, const GridMap& map) {
   // Prune stale unvisited memories periodically
   prune_expired_memories(current_time);
 
+  // 0. Base Station Charging & Battery State Machine
+  if (behavior_ == RobotBehavior::RECHARGING) {
+    battery_level_ += config_.recharge_rate * dt;
+    target_vel_.linear = 0.0;
+    target_vel_.angular = 0.0;
+    current_vel_.linear = 0.0;
+    current_vel_.angular = 0.0;
+
+    if (battery_level_ >= 100.0) {
+      battery_level_ = 100.0;
+      behavior_ = RobotBehavior::SEARCHING;
+      has_target_ = false;
+    }
+    return;
+  }
+
+  // Trigger return-to-base if battery is low
+  if (battery_level_ < config_.low_battery_threshold &&
+      behavior_ == RobotBehavior::SEARCHING) {
+    behavior_ = RobotBehavior::RETURNING_TO_BASE;
+  }
+
+  // Check if reached base station while returning
+  if (behavior_ == RobotBehavior::RETURNING_TO_BASE) {
+    set_navigation_target(config_.base_x, config_.base_y);
+
+    double dist_to_base = std::hypot(config_.base_x, config_.base_y);
+    if (dist_to_base < config_.target_reached_threshold) {
+      behavior_ = RobotBehavior::RECHARGING;
+      target_vel_.linear = 0.0;
+      target_vel_.angular = 0.0;
+      current_vel_.linear = 0.0;
+      current_vel_.angular = 0.0;
+      return;
+    }
+  }
+
   // stop robot if battery is exhausted
   if (battery_level_ <= 0.0) {
     target_vel_.linear = 0.0;
@@ -157,17 +194,17 @@ void RobotAgent::step(double dt, double current_time, const GridMap& map) {
 
     // Assign ABSOLUTE turning velocities (no cumulative += bug)
     if (left_clear && !right_clear) {
-      target_vel_.angular = 1.0;  // Turn left safely
+      target_vel_.angular = 1.5;  // Turn left safely
       target_vel_.linear *= 0.8;  // slow down slightly
     } else if (right_clear && !left_clear) {
-      target_vel_.angular = -1.0;  // Turn right safely
+      target_vel_.angular = -1.5;  // Turn right safely
       target_vel_.linear *= 0.7;
     } else if (!left_clear && !right_clear) {
       target_vel_.linear = -config_.max_speed * 0.5;
       target_vel_.angular = 0.0;  // Don't spin
     } else {
-      target_vel_.angular = 2.0;  // Spin out of corner
-      target_vel_.linear *= 0.3;
+      target_vel_.angular = -30.0;  // Spin out of corner
+      target_vel_.linear = 2.0;
     }
   }
 
@@ -194,7 +231,6 @@ void RobotAgent::step(double dt, double current_time, const GridMap& map) {
   pose_.theta += current_vel_.angular * dt;
 
   // Normalize theat to [-π, π]
-  // pose_.theta = std::atan2(std::sin(pose_.theta), std::cos(pose_.theta));
   while (pose_.theta > M_PI)
     pose_.theta -= 2 * M_PI;
   while (pose_.theta < -M_PI)

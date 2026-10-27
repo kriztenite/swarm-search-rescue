@@ -39,9 +39,11 @@ def main():
     SURVIVOR_COLOR = (255, 215, 0)
     KNOWN_SURVIVOR_COLOR = (165, 42, 42)
     VISITED_SURVIVOR_COLOR = (100, 100, 100)
-    ROBOT_COLOR = (0, 255, 150)
+    SEARCHING_COLOR = (0, 255, 150)
+    RETURNING_COLOR = (255, 165, 0)
+    RECHARGING_COLOR = (0, 191, 255)
+    BASE_STATION_COLOR = (0, 120, 255)
     HEADING_COLOR = (255, 50, 50)
-    # TARGET_LINE_COLOR = (255, 255, 150)
     COMMS_LINE_COLOR = (0, 150, 255)
     TEXT_COLOR = (220, 220, 220)
 
@@ -49,6 +51,9 @@ def main():
     FPS = 60
     clock = pygame.time.Clock()
     sim_time = 0.0
+
+    # Base Station Location
+    BASE_X, BASE_Y = 100.0, 100.0
 
     # 1. Instantiate the GridMap, MetricsLogger and CommsManager(Range = 180 pixels)
     world_map = swarm_core.GridMap(GRID_COLS, GRID_ROWS, RESOLUTION)
@@ -63,14 +68,14 @@ def main():
         world_map.set_cell(0, y, swarm_core.CellState.OBSTACLE)
         world_map.set_cell(GRID_COLS - 1, y, swarm_core.CellState.OBSTACLE)
 
-    # Add some internal obstacles
+    # Internal obstacles
     for y in range(8, 15):
         world_map.set_cell(15, y, swarm_core.CellState.OBSTACLE)
     for x in range(20, 30):
         world_map.set_cell(x, 20, swarm_core.CellState.OBSTACLE)
 
     # Scatter survivors across the map
-    survivors_locations = [(6, 6), (12, 22), (26, 6), (33, 24), (18, 10)]
+    survivors_locations = [(6, 6), (12, 22), (26, 8), (33, 24), (18, 18), (35, 12)]
     for sx, sy in survivors_locations:
         world_map.set_cell(sx, sy, swarm_core.CellState.SURVIVOR)
 
@@ -98,6 +103,7 @@ def main():
                 running = False
 
         sim_time += dt
+
         # 3. Communication sync
         comms.communicate(robots)
 
@@ -136,9 +142,6 @@ def main():
 
             # Step simulation
             robot.step(dt, sim_time, world_map)
-
-            if robot.get_battery() <= 0:
-                robot.set_target_velocity(0.0, 0.0)
 
         # 5. Log metrics every second
         if int(sim_time * FPS) % FPS == 0:
@@ -198,6 +201,12 @@ def main():
                         (center_x, center_y),
                         int(RESOLUTION / 3),
                     )
+        # Draw Base Station Docking pad
+        pygame.draw.circle(
+            screen, BASE_STATION_COLOR, (int(BASE_X), int(BASE_Y)), 24, 3
+        )
+        pygame.draw.circle(screen, (20, 80, 150), (int(BASE_X), int(BASE_Y)), 18)
+
         # Render comms links
         for i in range(len(robots)):
             for j in range(i + 1, len(robots)):
@@ -215,7 +224,7 @@ def main():
                         1,
                     )
 
-        # Render Robots, Headings and Target lines
+        # Render Robots, Headings and Coms lines
         for robot in robots:
             pose = robot.get_pose()
             rx, ry, rtheta = int(pose.x), int(pose.y), pose.theta
@@ -231,8 +240,17 @@ def main():
                     1,
                 )
 
+            # select color based on behavior state
+            behavior = robot.get_behavior()
+            if behavior == swarm_core.RobotBehavior.RECHARGING:
+                robot_color = RECHARGING_COLOR
+            elif behavior == swarm_core.RobotBehavior.RETURNING_TO_BASE:
+                robot_color = RETURNING_COLOR
+            else:
+                robot_color = SEARCHING_COLOR
+
             # Draw robot body
-            pygame.draw.circle(screen, ROBOT_COLOR, (rx, ry), int(RESOLUTION / 2.5))
+            pygame.draw.circle(screen, robot_color, (rx, ry), int(RESOLUTION / 2.5))
 
             # Draw heading vector
             end_x = rx + int(15 * math.cos(rtheta))
@@ -240,7 +258,7 @@ def main():
             pygame.draw.line(screen, HEADING_COLOR, (rx, ry), (end_x, end_y), 3)
 
             # Display status text
-            font = pygame.font.SysFont(None, 16)
+            font = pygame.font.SysFont(None, 14)
             text = font.render(
                 f"R{robot.get_id()} ({int(robot.get_battery())}%)", True, TEXT_COLOR
             )
@@ -249,7 +267,6 @@ def main():
         # Refresh screen
         pygame.display.flip()
         clock.tick(FPS)
-
     pygame.quit()
     sys.exit()
 

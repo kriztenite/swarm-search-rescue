@@ -6,6 +6,8 @@
 
 #include "GridMap.hpp"
 
+enum class RobotBehavior { SEARCHING, RETURNING_TO_BASE, RECHARGING };
+
 struct Message {
   int sender_id{0};
   int origin_id{0};
@@ -32,10 +34,14 @@ struct RobotConfig {
   double max_linear_accel{1.5};
   double max_angular_accel{3.14};
   double target_reached_threshold{15.0};
-  double lookahead_distance{40.0};
+  double lookahead_distance{20.0};
   double kp_angular{2.5};
   double survivor_ttl{120.0};  // Time-to-live in seconds
   double duplicate_cluster_radius{25.0};
+  double base_x{100.0};
+  double base_y{100.0};
+  double low_battery_threshold{25.0};  //%
+  double recharge_rate{35.0};          //% per second
 };
 
 struct Pose {
@@ -70,6 +76,7 @@ class RobotAgent {
   const Pose& get_pose() const { return pose_; }
   int get_id() const { return id_; }
   double get_battery() const { return battery_level_; }
+  RobotBehavior get_behavior() const { return behavior_; }
   const std::vector<SurvivorRecord>& get_known_survivors() const {
     return known_survivors_;
   }
@@ -88,6 +95,7 @@ class RobotAgent {
 
   RobotConfig config_;
   double battery_level_{100.0};
+  RobotBehavior behavior_{RobotBehavior::SEARCHING};
 
   // Navigate target state
   bool has_target_{false};

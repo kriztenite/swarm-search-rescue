@@ -67,6 +67,13 @@ PYBIND11_MODULE(swarm_core, m) {
       .def_readwrite("visited", &Message::visited)
       .def_readwrite("timestamp", &Message::timestamp);
 
+  // Expose RobotBehavior enum
+  py::enum_<RobotBehavior>(m, "RobotBehavior")
+      .value("SEARCHING", RobotBehavior::SEARCHING)
+      .value("RETURNING_TO_BASE", RobotBehavior::RETURNING_TO_BASE)
+      .value("RECHARGING", RobotBehavior::RECHARGING)
+      .export_values();
+
   //  Expose the RobotAgent class and its public methods
   py::class_<RobotAgent>(m, "RobotAgent")
       // Expose the constructor with default argument max_speed = 2.0
@@ -94,7 +101,8 @@ PYBIND11_MODULE(swarm_core, m) {
            py::arg("x"), py::arg("y"), py::arg("visited"),
            py::arg("current_time"))
       .def("mark_survivor_visited", &RobotAgent::mark_survivor_visited,
-           py::arg("x"), py::arg("y"));
+           py::arg("x"), py::arg("y"))
+      .def("get_behavior", &RobotAgent::get_behavior, "Returns battery state.");
 
   // Expose CommsManager
   py::class_<CommsManager>(m, "CommsManager")
