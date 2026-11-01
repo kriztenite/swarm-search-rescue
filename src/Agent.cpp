@@ -1,13 +1,21 @@
-#include <algorithm>
-#include <stdexcept>
-
 #include "Agent.hpp"
 
-RobotAgent::RobotAgent(int id, double x, double y, const RobotConfig& config)
+#include <algorithm>
+#include <cmath>
+#include <stdexcept>
+
+RobotAgent::RobotAgent(uint64_t id, double x, double y,
+                       const RobotConfig& config)
     : id_(id), config_(config) {
   pose_.x = x;
   pose_.y = y;
   pose_.theta = 0.0;
+
+  // Reserve space to avoid reallocations during runtime
+  known_survivors_.reserve(16);
+  inbox_.reserve(32);
+  outbox_.reserve(32);
+  seen_message_ids_.reserve(64);
 }
 
 void RobotAgent::set_target_velocity(double v, double omega) {
@@ -33,46 +41,62 @@ void RobotAgent::receive_message(const Message& msg) {
   auto it = std::find(seen_message_ids_.begin(), seen_message_ids_.end(),
                       msg.message_id);
   if (it == seen_message_ids_.end() && msg.hop_count < msg.max_hops) {
+    // circular buffer logic
+    if (seen_message_ids_.size() >= config_.max_seen_message_ids) {
+      seen_message_ids_.erase(seen_message_ids_.begin());  // Remove oldest
+    }
     seen_message_ids_.push_back(msg.message_id);
     inbox_.push_back(msg);
 
     // Prepare for multi-hop relaying
     Message relay_msg = msg;
     relay_msg.sender_id = id_;
-    relay_msg.hop_count += 1;
+    relay_msg.hop_count++;
     outbox_.push_back(relay_msg);
   }
 }
 
 void RobotAgent::clear_inboxes() {
   inbox_.clear();
-  // Keep outbox populated briefly for mesh propagation across neighbors
+  // Keep outbox for mesh propagation(cleared next step externally)
 }
 
 void RobotAgent::add_survivor_memory(double x, double y, bool visited,
                                      double current_time) {
+  // Throttle message generation to reduce bandwidth
+  if (current_time - last_message_time_ < config_.message_generation_interval) {
+    return;
+  }
+  last_message_time_ = current_time;
+
+  // Check for duplicate using cluster radius
   auto it = std::find_if(known_survivors_.begin(), known_survivors_.end(),
                          [this, x, y](const SurvivorRecord& rec) {
                            return std::hypot(rec.x - x, rec.y - y) <
                                   config_.duplicate_cluster_radius;
                          });
+
   if (it == known_survivors_.end()) {
     known_survivors_.push_back({x, y, visited, current_time});
 
     // Generate a unique message ID for mesh broadcasting
-    int msg_id = id_ * 1000 + static_cast<int>(current_time * 10) +
-                 known_survivors_.size();
-    seen_message_ids_.push_back(msg_id);
-
+    uint64_t msg_id = generate_message_id(current_time);
     Message new_msg{id_, id_, msg_id, 0, 5, x, y, true, visited, current_time};
     outbox_.push_back(new_msg);
   } else if (visited && !it->visited) {
     it->visited = true;
     // Broadcast updated visited status
-    int msg_id = id_ * 2000 + static_cast<int>(current_time * 10);
-    Message update_msg{id_, id_, msg_id, 0, 5, x, y, true, true, current_time};
+    std::uint64_t msg_id = id_ * 2000 + static_cast<int>(current_time * 10);
+    Message update_msg = {id_, id_, msg_id, 0,    5,
+                          x,   y,   true,   true, current_time};
     outbox_.push_back(update_msg);
   }
+}
+// Generate unique id for robot using atomic counter
+uint64_t RobotAgent::generate_message_id(double current_time) {
+  static uint64_t message_counter{0};
+  return (static_cast<uint64_t>(id_) << 48 |      // Top 16 bits: robot ID
+          (++message_counter) & 0xFFFFFFFFFFFF);  // Lower 48 bits: sequence
 }
 
 void RobotAgent::mark_survivor_visited(double x, double y) {
@@ -179,32 +203,30 @@ void RobotAgent::step(double dt, double current_time, const GridMap& map) {
     double left_angle = pose_.theta + 0.785;   // +45 degrees
     double right_angle = pose_.theta - 0.785;  // -45 degrees
 
-    double left_x =
-        pose_.x + (config_.lookahead_distance * 0.7) * std::cos(left_angle);
-    double left_y =
-        pose_.y + (config_.lookahead_distance * 0.7) * std::sin(left_angle);
+    bool left_clear = !map.is_collision(
+        pose_.x + (config_.lookahead_distance * 0.7) * std::cos(left_angle),
+        pose_.y + (config_.lookahead_distance * 0.7) * std::sin(left_angle));
 
-    double right_x =
-        pose_.x + (config_.lookahead_distance * 0.7) * std::cos(right_angle);
-    double right_y =
-        pose_.y + (config_.lookahead_distance * 0.7) * std::sin(right_angle);
-
-    bool left_clear = !map.is_collision(left_x, left_y);
-    bool right_clear = !map.is_collision(right_x, right_y);
+    double right_clear =
+        (pose_.x + (config_.lookahead_distance * 0.7) * std::cos(right_angle),
+         pose_.y + (config_.lookahead_distance * 0.7) * std::sin(right_angle));
 
     // Assign ABSOLUTE turning velocities (no cumulative += bug)
     if (left_clear && !right_clear) {
-      target_vel_.angular = 1.5;  // Turn left safely
-      target_vel_.linear *= 0.8;  // slow down slightly
+      target_vel_.linear =
+          std::max(15.0, config_.max_speed * 0.4);  // Turn left safely
+      target_vel_.angular = 0.9;                    // slow down slightly
     } else if (right_clear && !left_clear) {
-      target_vel_.angular = -1.5;  // Turn right safely
-      target_vel_.linear *= 0.7;
+      target_vel_.linear =
+          std::max(15.0, config_.max_speed * 0.4);  // Turn right safely
+      target_vel_.angular = -0.9;
     } else if (!left_clear && !right_clear) {
       target_vel_.linear = -config_.max_speed * 0.5;
       target_vel_.angular = 0.0;  // Don't spin
     } else {
-      target_vel_.angular = -30.0;  // Spin out of corner
-      target_vel_.linear = 2.0;
+      // both clear
+      target_vel_.angular = config_.max_speed * 0.35;
+      target_vel_.angular = (rand() % 2 ? 1 : -1) * 0.8;
     }
   }
 

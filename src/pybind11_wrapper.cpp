@@ -76,8 +76,7 @@ PYBIND11_MODULE(swarm_core, m) {
 
   //  Expose the RobotAgent class and its public methods
   py::class_<RobotAgent>(m, "RobotAgent")
-      // Expose the constructor with default argument max_speed = 2.0
-      .def(py::init<int, double, double>(), py::arg("id"), py::arg("x"),
+      .def(py::init<uint64_t, double, double>(), py::arg("id"), py::arg("x"),
            py::arg("y"))
       // Expose member functions
       .def("step", &RobotAgent::step, py::arg("dt"), py::arg("current_time"),
