@@ -114,4 +114,10 @@ class RobotAgent {
 
   // Helper methods
   [[nodiscard]] uint64_t generate_message_id(double current_time);
+
+  bool handle_charging_state(double dt);
+  void compute_navigation_velocity();
+  void apply_obstacle_avoidance(const GridMap& map);
+  void apply_kinematics(double dt, const GridMap& map);
+  void update_battery_drain(double dt);
 };

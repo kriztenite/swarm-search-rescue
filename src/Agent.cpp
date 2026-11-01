@@ -118,24 +118,18 @@ void RobotAgent::prune_expired_memories(double current_time) {
       known_survivors_.end());
 }
 
-void RobotAgent::step(double dt, double current_time, const GridMap& map) {
-  // Prune stale unvisited memories periodically
-  prune_expired_memories(current_time);
-
-  // 0. Base Station Charging & Battery State Machine
+bool RobotAgent::handle_charging_state(double dt) {
   if (behavior_ == RobotBehavior::RECHARGING) {
     battery_level_ += config_.recharge_rate * dt;
-    target_vel_.linear = 0.0;
-    target_vel_.angular = 0.0;
-    current_vel_.linear = 0.0;
-    current_vel_.angular = 0.0;
+    target_vel_ = {0.0, 0.0};
+    current_vel_ = {0.0, 0.0};
 
     if (battery_level_ >= 100.0) {
       battery_level_ = 100.0;
       behavior_ = RobotBehavior::SEARCHING;
       has_target_ = false;
     }
-    return;
+    return true;  // Handled, skip regular movement
   }
 
   // Trigger return-to-base if battery is low
@@ -147,53 +141,59 @@ void RobotAgent::step(double dt, double current_time, const GridMap& map) {
   // Check if reached base station while returning
   if (behavior_ == RobotBehavior::RETURNING_TO_BASE) {
     set_navigation_target(config_.base_x, config_.base_y);
-
     double dist_to_base = std::hypot(config_.base_x, config_.base_y);
-    if (dist_to_base < config_.target_reached_threshold) {
+
+    if (dist_to_base < std::max(30.0, config_.target_reached_threshold)) {
       behavior_ = RobotBehavior::RECHARGING;
-      target_vel_.linear = 0.0;
-      target_vel_.angular = 0.0;
-      current_vel_.linear = 0.0;
-      current_vel_.angular = 0.0;
-      return;
+      target_vel_ = {0.0, 0.0};
+      current_vel_ = {0.0, 0.0};
+      return true;
     }
   }
 
   // stop robot if battery is exhausted
   if (battery_level_ <= 0.0) {
+    target_vel_ = {0.0, 0.0};
+    current_vel_ = {0.0, 0.0};
+    return true;
+  }
+  return false;  // Continue normal simulation
+}
+
+void RobotAgent::compute_navigation_velocity() {
+  if (!has_target_)
+    return;
+
+  double dx = target_x_ - pose_.x;
+  double dy = target_y_ - pose_.y;
+  double distance = std::hypot(dx, dy);
+
+  if (distance < config_.target_reached_threshold) {
+    has_target_ = false;
     target_vel_.linear = 0.0;
     target_vel_.angular = 0.0;
-    current_vel_.linear = 0.0;
-    current_vel_.angular = 0.0;
-    return;
-  }
 
-  // 1. Navigation & Proportional Steering Contorl
-  if (has_target_) {
-    double dx = target_x_ - pose_.x;
-    double dy = target_y_ - pose_.y;
-    double distance = std::hypot(dx, dy);
+  } else {
+    double target_theta = std::atan2(dy, dx);
+    double angle_error = std::atan2(std::sin(target_theta - pose_.theta),
+                                    std::cos(target_theta - pose_.theta));
 
-    if (distance < config_.target_reached_threshold) {
-      has_target_ = false;
-      target_vel_.linear = 0.0;
-      target_vel_.angular = 0.0;
+    double desired_omega = config_.kp_angular * angle_error;
+    double desired_linear =
+        config_.max_speed * std::max(0.2, std::cos(angle_error));
 
-    } else {
-      double target_theta = std::atan2(dy, dx);
-      double angle_error = std::atan2(std::sin(target_theta - pose_.theta),
-                                      std::cos(target_theta - pose_.theta));
-
-      double desired_omega = config_.kp_angular * angle_error;
-      double desired_linear =
-          config_.max_speed * std::max(0.2, std::cos(angle_error));
-
-      target_vel_.linear = desired_linear;
-      target_vel_.angular = std::clamp(desired_omega, -config_.max_angular_vel,
-                                       config_.max_angular_vel);
+    if (distance < 80.0) {
+      double braking_factor = std::clamp(distance / 80.0, 0.15, 1.0);
+      desired_linear *= braking_factor;
     }
+
+    target_vel_.linear = desired_linear;
+    target_vel_.angular = std::clamp(desired_omega, -config_.max_angular_vel,
+                                     config_.max_angular_vel);
   }
-  // 2. Proactive Obstacle Avoidance(Raycasting lookahead)
+}
+
+void RobotAgent::apply_obstacle_avoidance(const GridMap& map) {
   double lookahead_x =
       pose_.x + config_.lookahead_distance * std::cos(pose_.theta);
   double lookahead_y =
@@ -207,11 +207,10 @@ void RobotAgent::step(double dt, double current_time, const GridMap& map) {
         pose_.x + (config_.lookahead_distance * 0.7) * std::cos(left_angle),
         pose_.y + (config_.lookahead_distance * 0.7) * std::sin(left_angle));
 
-    double right_clear =
-        (pose_.x + (config_.lookahead_distance * 0.7) * std::cos(right_angle),
-         pose_.y + (config_.lookahead_distance * 0.7) * std::sin(right_angle));
+    double right_clear = !map.is_collision(
+        pose_.x + (config_.lookahead_distance * 0.7) * std::cos(right_angle),
+        pose_.y + (config_.lookahead_distance * 0.7) * std::sin(right_angle));
 
-    // Assign ABSOLUTE turning velocities (no cumulative += bug)
     if (left_clear && !right_clear) {
       target_vel_.linear =
           std::max(15.0, config_.max_speed * 0.4);  // Turn left safely
@@ -226,11 +225,12 @@ void RobotAgent::step(double dt, double current_time, const GridMap& map) {
     } else {
       // both clear
       target_vel_.angular = config_.max_speed * 0.35;
-      target_vel_.angular = (rand() % 2 ? 1 : -1) * 0.8;
+      target_vel_.angular = 0.8;
     }
   }
+}
 
-  // 3. Apply acceleration limits
+void RobotAgent::apply_kinematics(double dt, const GridMap& map) {
   double dv = target_vel_.linear - current_vel_.linear;
   current_vel_.linear += std::clamp(dv, -config_.max_linear_accel * dt,
                                     config_.max_linear_accel * dt);
@@ -257,12 +257,33 @@ void RobotAgent::step(double dt, double current_time, const GridMap& map) {
     pose_.theta -= 2 * M_PI;
   while (pose_.theta < -M_PI)
     pose_.theta += 2 * M_PI;
+}
 
-  // 5. Battery drain
+void RobotAgent::update_battery_drain(double dt) {
   double speed_factor =
       std::abs(current_vel_.linear) + std::abs(current_vel_.angular) * 0.2;
   if (speed_factor > 0.0) {
     battery_level_ -= (0.1 * speed_factor) * dt;
   }
   battery_level_ = std::max(0.0, battery_level_);
+}
+
+void RobotAgent::step(double dt, double current_time, const GridMap& map) {
+  // Prune stale unvisited memories periodically
+  prune_expired_memories(current_time);
+
+  // 0. Base Station Charging & Battery State Machine
+  if (handle_charging_state(dt)) {
+    return;
+  }
+
+  // 1. Navigation & Proportional Steering Contorl
+  compute_navigation_velocity();
+  // 2. Proactive Obstacle Avoidance(Raycasting lookahead)
+  apply_obstacle_avoidance(map);
+  // 3. Apply acceleration limits
+  apply_kinematics(dt, map);
+
+  // 5. Battery drain
+  update_battery_drain(dt);
 }
