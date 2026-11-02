@@ -39,21 +39,21 @@ Ensure you have the following installed on your system (Linux/macOS/WSL):
 
 1. **Clone the repository:**
    ```bash
-   git clone [https://github.com/YOUR_USERNAME/swarm-search-rescue.git](https://github.com/YOUR_USERNAME/swarm-search-rescue.git)
+   git clone [https://github.com/kriztenite/swarm-search-rescue.git](https://github.com/YOUR_USERNAME/swarm-search-rescue.git)
    cd swarm-search-rescue
 
 2. **Compile the c++ core with CMake & Pybind11:**
     ```bash
-    mkdir -p build && cd build
-    cmake ..
-    cmake --build .
-    cd ..
+    
+    cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
+    cmake --build build --config Release
     ```
 3. **Run the C++ Unit Test Suite:**
     ```bash
     ./build/unit_tests
     ```
 4. **Lanunch the Real-Time Python Visualizer:**
+    create a venv an source into it then run this command.
     ```bash
     python3 python/main.py
     ```
