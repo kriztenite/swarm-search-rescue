@@ -4,5 +4,5 @@ compile_commands.json
 python/*.so
 tests/Testing/
 venv/
-*.csv
+simulation_metrics.csv
 *.data
